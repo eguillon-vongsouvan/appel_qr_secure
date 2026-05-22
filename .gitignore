@@ -1,0 +1,13 @@
+node_modules/
+qr-codes/
+.env
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+credentials.json
+token.json
+*.pem

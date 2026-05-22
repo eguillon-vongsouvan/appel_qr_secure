@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Appel — résultat</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: #f0f9ff;
+      color: #0f172a;
+    }
+    .card {
+      max-width: 400px;
+      background: #fff;
+      border-radius: 16px;
+      padding: 1.75rem;
+      text-align: center;
+      box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+      border: 1px solid #e2e8f0;
+    }
+    .ok { color: #059669; font-size: 2.5rem; }
+    .err { color: #dc2626; font-size: 2.5rem; }
+    h1 { font-size: 1.25rem; margin: 0.75rem 0 0.5rem; }
+    p { color: #64748b; margin: 0; line-height: 1.5; }
+    .room { margin-top: 1rem; font-weight: 600; color: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="icon" class="ok">✓</div>
+    <h1 id="title">Présence enregistrée</h1>
+    <p id="msg">Merci, votre connexion Google a été validée.</p>
+    <p class="room" id="room"></p>
+  </div>
+  <script>
+    const p = new URLSearchParams(location.search);
+    const ok = p.get('ok') === '1';
+    if (!ok) {
+      document.getElementById('icon').className = 'err';
+      document.getElementById('icon').textContent = '✕';
+      document.getElementById('title').textContent = 'Échec';
+      document.getElementById('msg').textContent = p.get('msg') || 'Connexion ou appel impossible.';
+    }
+    const room = p.get('room');
+    if (room) document.getElementById('room').textContent = room;
+  </script>
+</body>
+</html>

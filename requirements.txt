@@ -1,0 +1,13 @@
+# Installation sans admin : python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pydantic-settings>=2.2.0
+pillow>=10.0.0
+qrcode[pil]>=7.4.0
+httpx>=0.27.0
+
+# Optionnel : alertes e-mail via Gmail API (OAuth utilisateur, pas besoin d'admin domaine)
+google-api-python-client>=2.120.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0

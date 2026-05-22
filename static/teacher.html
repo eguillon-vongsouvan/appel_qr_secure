@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Appel en cours — QR sécurisé</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #64748b;
+      --paper: #f8fafc;
+      --card: #ffffff;
+      --accent: #1d4ed8;
+      --accent-soft: #dbeafe;
+      --success: #059669;
+      --border: #e2e8f0;
+      --shadow: 0 22px 50px -12px rgba(15, 23, 42, 0.18);
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(29, 78, 216, 0.12), transparent),
+        radial-gradient(900px 500px at 100% 0%, rgba(5, 150, 105, 0.08), transparent),
+        var(--paper);
+    }
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: clamp(1rem, 3vw, 2.5rem);
+    }
+    header.brand {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+    }
+    .logo {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: linear-gradient(145deg, var(--accent), #0f172a);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      box-shadow: var(--shadow);
+    }
+    .logo svg { width: 28px; height: 28px; }
+    .brand h1 {
+      margin: 0;
+      font-size: clamp(1.35rem, 3vw, 1.75rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .brand p {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .alert {
+      padding: 1rem 1.15rem;
+      border-radius: var(--radius);
+      margin-bottom: 1.25rem;
+      border: 1px solid #fcd34d;
+      background: #fffbeb;
+      color: #92400e;
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+    .alert strong { display: block; margin-bottom: 0.35rem; }
+    .panel {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      padding: clamp(1.25rem, 3vw, 2rem);
+    }
+    .panel h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.15rem;
+    }
+    .hint { color: var(--muted); font-size: 0.9rem; margin: 0 0 1.25rem; line-height: 1.5; }
+    label { display: block; font-weight: 600; font-size: 0.88rem; margin-bottom: 0.45rem; }
+    input[type="text"], input[type="url"] {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font: inherit;
+      margin-bottom: 1rem;
+      background: #fff;
+    }
+    input:focus {
+      outline: 2px solid var(--accent-soft);
+      border-color: var(--accent);
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+    button.primary {
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      border-radius: 12px;
+      padding: 0.85rem 1.35rem;
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
+    }
+    button.primary:hover { filter: brightness(1.06); }
+    button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
+    button.ghost {
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      background: #fff;
+      color: var(--ink);
+    }
+    .hidden { display: none !important; }
+    #screen-live .live-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .badge-room {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 0.9rem;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #1e40af;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .timer {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--success);
+    }
+    .qr-frame {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: clamp(1rem, 3vw, 2rem);
+      background: linear-gradient(180deg, #fff 0%, #f1f5f9 100%);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+    }
+    .qr-frame p { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; text-align: center; max-width: 36ch; }
+    #qr {
+      display: block;
+      width: min(72vmin, 420px);
+      height: min(72vmin, 420px);
+      object-fit: contain;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+      border: 4px solid #fff;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    #qr.loaded { opacity: 1; }
+    #qr.error { opacity: 0.4; filter: grayscale(1); }
+    #status {
+      margin-top: 1rem;
+      text-align: center;
+      font-size: 0.88rem;
+      color: var(--muted);
+      min-height: 1.4em;
+    }
+    #status.err { color: #b91c1c; }
+    footer.note {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          <path d="M8 7h8M8 11h6" />
+        </svg>
+      </div>
+      <div>
+        <h1>Appel sécurisé</h1>
+        <p>Code QR dynamique — usage en salle de classe</p>
+      </div>
+    </header>
+
+    <div id="alert-file" class="alert hidden">
+      <strong>Page ouverte en fichier local</strong>
+      Les requêtes vers l’API ne fonctionnent pas depuis <code>file://</code>. Indiquez l’URL du serveur ci-dessous (ex. <code>http://127.0.0.1:8765</code>) ou ouvrez cette page depuis le navigateur à cette adresse.
+    </div>
+
+    <section id="screen-setup" class="panel">
+      <h2>Démarrer un appel</h2>
+      <p class="hint">Aucune session active. Saisissez la salle ou le cours, puis affichez le QR au vidéoprojecteur. Les élèves scannent avec l’application (Wi‑Fi établissement requis en production).</p>
+      <label for="api-base">URL du serveur API (si besoin)</label>
+      <input type="url" id="api-base" placeholder="Laisser vide si vous êtes déjà sur http://127.0.0.1:8765/…" autocomplete="off" />
+      <label for="room">Salle ou cours</label>
+      <input type="text" id="room" placeholder="Ex. Salle B204 — Mathématiques" maxlength="120" />
+      <div class="row">
+        <button type="button" class="primary" id="btn-start">Afficher le code QR</button>
+      </div>
+      <footer class="note">
+        Pour le scan mobile → Google : dans <code>.env</code>, définissez
+        <code>PUBLIC_BASE_URL=http://VOTRE_IP:8765</code> (commande <code>ipconfig</code>),
+        redémarrez le serveur, et autorisez le port au pare-feu. Les élèves doivent être sur le même Wi‑Fi.
+      </footer>
+    </section>
+
+    <section id="screen-live" class="panel hidden">
+      <div class="live-head">
+        <span class="badge-room" id="room-display">—</span>
+        <span class="timer" id="countdown">—</span>
+      </div>
+      <div class="qr-frame">
+        <p>Les élèves scannent ce code avec leur téléphone : ils sont redirigés vers la <strong>connexion Google</strong>, puis la présence est enregistrée. Le code se renouvelle automatiquement.</p>
+        <img id="qr" alt="Code QR d’appel" width="420" height="420" />
+        <p id="status">Chargement du QR…</p>
+      </div>
+      <div class="row" style="margin-top:1rem;">
+        <button type="button" class="ghost" id="btn-new">Nouvelle session</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const LS_API = 'appel_qr_api_base';
+    const params = new URLSearchParams(location.search);
+    let sessionId = params.get('session');
+    let roomName = '';
+    let refreshMs = 5000;
+    let countdownTimer = null;
+    let refreshTimeoutId = null;
+
+    const el = (id) => document.getElementById(id);
+
+    function clearSchedulers() {
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+      if (refreshTimeoutId) {
+        clearTimeout(refreshTimeoutId);
+        refreshTimeoutId = null;
+      }
+    }
+
+    function getApiBase() {
+      const raw = el('api-base').value.trim().replace(/\/$/, '');
+      if (raw) return raw;
+      if (location.protocol === 'http:' || location.protocol === 'https:') return '';
+      return '';
+    }
+
+    function api(path) {
+      const base = getApiBase();
+      if (!base && (location.protocol === 'file:' || location.protocol === '')) {
+        throw new Error('Définissez l’URL du serveur dans le champ ci-dessus (ex. http://127.0.0.1:8765)');
+      }
+      return (base || '') + path;
+    }
+
+    function showSetup() {
+      clearSchedulers();
+      el('screen-live').classList.add('hidden');
+      el('screen-setup').classList.remove('hidden');
+      sessionId = null;
+    }
+
+    function showLive() {
+      el('screen-setup').classList.add('hidden');
+      el('screen-live').classList.remove('hidden');
+    }
+
+    function setStatus(text, isError) {
+      const s = el('status');
+      s.textContent = text;
+      s.classList.toggle('err', !!isError);
+    }
+
+    function updateCountdown(seconds) {
+      el('countdown').textContent = 'Prochain QR : ' + Math.max(0, seconds) + ' s';
+    }
+
+    async function refreshQr() {
+      const img = el('qr');
+      if (!sessionId) return;
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+      try {
+        const r = await fetch(api('/api/sessions/' + encodeURIComponent(sessionId) + '/token'));
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(t || r.statusText);
+        }
+        const j = await r.json();
+        refreshMs = (j.refresh_in || 5) * 1000;
+        setStatus('Code à jour — valide environ ' + (j.expires_in || 30) + ' s', false);
+
+        const url = api('/api/sessions/' + encodeURIComponent(sessionId) + '/qr.png?t=' + Date.now());
+        img.classList.remove('loaded', 'error');
+        img.onload = function () {
+          img.classList.add('loaded');
+          img.onload = null;
+        };
+        img.onerror = function () {
+          img.classList.add('error');
+          setStatus('Impossible d’afficher l’image du QR. Vérifiez l’URL du serveur et que la session existe.', true);
+        };
+        img.src = url;
+
+        let left = Math.ceil(refreshMs / 1000);
+        updateCountdown(left);
+        countdownTimer = setInterval(function () {
+          left -= 1;
+          updateCountdown(left);
+          if (left <= 0) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+          }
+        }, 1000);
+
+        refreshTimeoutId = setTimeout(refreshQr, refreshMs);
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+        refreshTimeoutId = setTimeout(refreshQr, 3000);
+      }
+    }
+
+    async function startSession() {
+      roomName = el('room').value.trim() || 'Salle non précisée';
+      const btn = el('btn-start');
+      btn.disabled = true;
+      setStatus('', false);
+      try {
+        localStorage.setItem(LS_API, el('api-base').value.trim());
+        const r = await fetch(api('/api/sessions'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ room_name: roomName }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        sessionId = data.session_id;
+        try {
+          history.replaceState({}, '', '?session=' + encodeURIComponent(sessionId));
+        } catch (_) {}
+        el('room-display').textContent = roomName;
+        showLive();
+        refreshQr();
+      } catch (e) {
+        alert('Impossible de créer la session : ' + (e.message || e) + '\n\nVérifiez que le serveur tourne et que l’URL API est correcte.');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    el('btn-start').addEventListener('click', startSession);
+    el('btn-new').addEventListener('click', function () {
+      try { history.replaceState({}, '', location.pathname); } catch (_) {}
+      showSetup();
+    });
+
+    /* Init */
+    if (location.protocol === 'file:') {
+      el('alert-file').classList.remove('hidden');
+    }
+    const saved = localStorage.getItem(LS_API);
+    if (saved) el('api-base').value = saved;
+
+    if (sessionId) {
+      showLive();
+      el('room-display').textContent = 'Chargement…';
+      fetch(api('/api/sessions/' + encodeURIComponent(sessionId) + '/info'))
+        .then(function (r) {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
+        .then(function (data) {
+          el('room-display').textContent = data.room || 'Appel en cours';
+        })
+        .catch(function () {
+          el('room-display').textContent = 'Session introuvable';
+          setStatus('Cette session n’existe plus (redémarrage du serveur ?). Utilisez « Nouvelle session ».', true);
+        });
+      refreshQr();
+    }
+  </script>
+</body>
+</html>

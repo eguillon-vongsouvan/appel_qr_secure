@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: appel-qr-secure
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: QR_SECRET
+        generateValue: true
+      - key: NODE_VERSION
+        value: "20"
