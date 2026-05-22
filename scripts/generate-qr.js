@@ -18,11 +18,14 @@ if (!nom || !prenom) {
 }
 
 const { buildStudentToken } = require('../lib/qr-token');
-const { slot, sig } = buildStudentToken(nom, prenom);
+const nonceStore = require('../lib/nonce-store');
+const { slot, sig, nonce } = buildStudentToken(nom, prenom);
+nonceStore.issue(nonce, slot);
 const params = new URLSearchParams({
   nom,
   prenom,
   t: String(slot),
+  n: nonce,
   sig,
 });
 const url = `${getBaseUrl(PORT)}/presence?${params.toString()}`;

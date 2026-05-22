@@ -13,6 +13,9 @@ const {
   secondsUntilNextWindow,
   WINDOW_MS,
 } = require('./lib/qr-token');
+const nonceStore = require('./lib/nonce-store');
+const { getGeofenceConfig, insideGeofence } = require('./lib/geo');
+const { emargerFormPage } = require('./lib/emarger-page');
 const { escapeHtml, errorPage, presenceSuccessPage } = require('./lib/html');
 
 const app = express();
@@ -33,13 +36,15 @@ function baseUrl() {
   return getBaseUrl(PORT);
 }
 
-/** URL de présence signée (valide ~30 s, marge 30 s supplémentaire). */
+/** URL de présence signée (créneau 30 s + jeton à usage unique). */
 function presenceUrl(nom, prenom) {
-  const { slot, sig } = buildStudentToken(nom, prenom);
+  const { slot, sig, nonce } = buildStudentToken(nom, prenom);
+  nonceStore.issue(nonce, slot);
   const params = new URLSearchParams({
     nom: String(nom),
     prenom: String(prenom),
     t: String(slot),
+    n: nonce,
     sig,
   });
   return `${baseUrl()}/presence?${params.toString()}`;
@@ -47,9 +52,25 @@ function presenceUrl(nom, prenom) {
 
 /** URL d'émargement via QR de séance (affiche classe). */
 function sessionScanUrl() {
-  const { slot, sig } = buildSessionToken();
-  const params = new URLSearchParams({ t: String(slot), sig });
+  const { slot, sig, nonce } = buildSessionToken();
+  nonceStore.issue(nonce, slot);
+  const params = new URLSearchParams({
+    t: String(slot),
+    n: nonce,
+    sig,
+  });
   return `${baseUrl()}/emarger?${params.toString()}`;
+}
+
+function rejectUsedOrInvalidQr(res) {
+  return res
+    .status(410)
+    .send(
+      errorPage(
+        'QR invalide',
+        'Ce code a expiré, a déjà été utilisé, ou provient d\'une photo. Scannez le QR affiché en direct à l\'écran.'
+      )
+    );
 }
 
 function phoneTestLinksHtml() {
@@ -158,6 +179,15 @@ app.get('/', (req, res) => {
     <p>Définissez l'URL publique avant <code>npm start</code> :</p>
     <p class="ip">set PUBLIC_URL=https://votre-url.ngrok-free.app</p>
     <p>Ou déployez sur <strong>Render</strong> (gratuit) — le fichier <code>render.yaml</code> est prêt.</p>
+  </div>
+
+  <div class="box">
+    <h2>Sécurité</h2>
+    <ul>
+      <li>QR <strong>usage unique</strong> (une photo ne peut pas être réutilisée)</li>
+      <li>QR <strong>renouvelé toutes les 30 s</strong></li>
+      <li><strong>Géolocalisation</strong> : émarger uniquement sur place (.env)</li>
+    </ul>
   </div>
 
   <div class="box">
@@ -294,10 +324,10 @@ app.get('/affiche', (req, res) => {
 </head>
 <body>
   <h1>Scannez pour émarger</h1>
-  <p class="sub">QR renouvelé toutes les 30 secondes</p>
+    <p class="sub">QR renouvelé toutes les 30 s — usage unique, pas de photo</p>
   <img id="qr" alt="QR code séance" width="320" height="320">
   <p class="timer">Prochain QR dans <span id="sec">30</span> s</p>
-  <p class="hint">Scannez vite : l'ancien QR expire. Même Wi-Fi que ce PC.</p>
+  <p class="hint">Ne photographiez pas le QR : une capture ne fonctionnera pas.</p>
   <p class="phone">${escapeHtml(baseUrl())}</p>
   <script>
     const img = document.getElementById('qr');
@@ -335,96 +365,54 @@ app.get('/qr-session.png', async (req, res) => {
   }
 });
 
-// ——— Après scan du QR séance : formulaire nom / prénom ———
+// ——— Après scan du QR séance : formulaire nom / prénom + GPS ———
 app.get('/emarger', (req, res) => {
-  const { t, sig } = req.query;
-  if (!verifySessionQuery(t, sig)) {
-    return res
-      .status(410)
-      .send(
-        errorPage(
-          'QR expiré',
-          'Ce QR a plus de 30 secondes. Rescannez le code affiché à l\'écran.'
-        )
-      );
+  const { t, sig, n } = req.query;
+  if (!verifySessionQuery(t, sig)) return rejectUsedOrInvalidQr(res);
+  if (!n || nonceStore.isUsed(n) || !nonceStore.canOpen(n)) {
+    return rejectUsedOrInvalidQr(res);
   }
 
-  res.send(`<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Émarger</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: system-ui, sans-serif;
-      max-width: 22rem;
-      margin: 0 auto;
-      padding: 1.5rem 1rem;
-      min-height: 100dvh;
-      background: #f0fdf4;
-    }
-    h1 { font-size: 1.2rem; color: #166534; }
-    label { display: block; margin-top: 1rem; font-weight: 600; }
-    input {
-      width: 100%;
-      padding: 0.75rem;
-      margin-top: 0.35rem;
-      border: 1px solid #86efac;
-      border-radius: 8px;
-      font-size: 1.05rem;
-    }
-    button {
-      width: 100%;
-      margin-top: 1.25rem;
-      padding: 0.85rem;
-      background: #16a34a;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 1.05rem;
-      font-weight: 600;
-    }
-  </style>
-</head>
-<body>
-  <h1>Validation de présence</h1>
-  <p>Indiquez votre identité :</p>
-  <form method="post" action="/emarger">
-    <input type="hidden" name="t" value="${escapeHtml(t)}">
-    <input type="hidden" name="sig" value="${escapeHtml(sig)}">
-    <label for="prenom">Prénom</label>
-    <input id="prenom" name="prenom" required autocomplete="given-name">
-    <label for="nom">Nom</label>
-    <input id="nom" name="nom" required autocomplete="family-name">
-    <button type="submit">Confirmer ma présence</button>
-  </form>
-</body>
-</html>`);
+  const geo = getGeofenceConfig();
+  res.send(
+    emargerFormPage({
+      t,
+      sig,
+      n,
+      geofenceEnabled: geo.enabled,
+      radius: geo.radius,
+      lat: geo.lat,
+      lon: geo.lon,
+    })
+  );
 });
 
 app.post('/emarger', (req, res) => {
-  const { t, sig, nom, prenom } = req.body;
-  const n = (nom || '').trim();
-  const p = (prenom || '').trim();
+  const { t, sig, n, nom, prenom, latitude, longitude } = req.body;
+  const nomTrim = (nom || '').trim();
+  const prenomTrim = (prenom || '').trim();
 
-  if (!verifySessionQuery(t, sig)) {
-    return res
-      .status(410)
-      .send(
-        errorPage(
-          'Session expirée',
-          'Le délai est dépassé. Rescannez le QR affiché (il change toutes les 30 s).'
-        )
-      );
-  }
-  if (!n || !p) {
+  if (!verifySessionQuery(t, sig)) return rejectUsedOrInvalidQr(res);
+  if (!n || !nonceStore.consume(n)) return rejectUsedOrInvalidQr(res);
+  if (!nomTrim || !prenomTrim) {
     return res.status(400).send(errorPage('Erreur', 'Nom et prénom requis.'));
   }
 
-  console.log(`[PRÉSENCE] ${p} ${n} — ${new Date().toISOString()}`);
-  res.send(presenceSuccessPage(p, n));
+  const geoCheck = insideGeofence(
+    parseFloat(latitude),
+    parseFloat(longitude)
+  );
+  if (!geoCheck.ok) {
+    return res
+      .status(403)
+      .send(errorPage('Hors zone', geoCheck.reason || 'Géolocalisation refusée.'));
+  }
+
+  console.log(
+    `[PRÉSENCE] ${prenomTrim} ${nomTrim} — ${new Date().toISOString()}` +
+      (geoCheck.distance != null ? ` (${Math.round(geoCheck.distance)} m)` : '')
+  );
+  res.send(presenceSuccessPage(prenomTrim, nomTrim));
 });
 
 // ——— QR par élève (page avec rafraîchissement 30 s) ———
@@ -502,7 +490,7 @@ app.get('/qr.png', async (req, res) => {
 app.get('/presence', (req, res) => {
   const nom = (req.query.nom || '').trim();
   const prenom = (req.query.prenom || '').trim();
-  const { t, sig } = req.query;
+  const { t, sig, n } = req.query;
 
   if (!nom || !prenom) {
     return res
@@ -510,16 +498,8 @@ app.get('/presence', (req, res) => {
       .send(errorPage('Lien invalide', 'Nom et prénom manquants.'));
   }
 
-  if (!verifyStudentQuery(nom, prenom, t, sig)) {
-    return res
-      .status(410)
-      .send(
-        errorPage(
-          'QR expiré',
-          'Ce code a plus de 30 secondes. Demandez un nouveau QR à l\'écran.'
-        )
-      );
-  }
+  if (!verifyStudentQuery(nom, prenom, t, n, sig)) return rejectUsedOrInvalidQr(res);
+  if (!n || !nonceStore.consume(n)) return rejectUsedOrInvalidQr(res);
 
   console.log(`[PRÉSENCE] ${prenom} ${nom} — ${new Date().toISOString()}`);
   res.send(presenceSuccessPage(prenom, nom));
@@ -548,6 +528,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   }
   console.log('');
   console.log('  Port bloqué ?  npm run stop');
+  const geo = getGeofenceConfig();
+  if (geo.enabled) {
+    console.log(`  Géolocalisation : ON (${geo.radius} m autour de ${geo.lat}, ${geo.lon})`);
+  } else {
+    console.log('  Géolocalisation : OFF (définir SCHOOL_LATITUDE / SCHOOL_LONGITUDE)');
+  }
+  console.log('  Anti-photo      : jeton à usage unique par QR');
   console.log(`  QR : toutes les ${WINDOW_MS / 1000} s (prochain dans ${sec} s)`);
   console.log('');
 });

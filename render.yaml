@@ -9,3 +9,11 @@ services:
         generateValue: true
       - key: NODE_VERSION
         value: "20"
+      - key: GEOFENCE_ENABLED
+        value: "1"
+      - key: SCHOOL_LATITUDE
+        sync: false
+      - key: SCHOOL_LONGITUDE
+        sync: false
+      - key: GEOFENCE_RADIUS_METERS
+        value: "150"
