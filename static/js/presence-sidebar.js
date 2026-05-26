@@ -27,15 +27,19 @@ window.initPresenceSidebar = function initPresenceSidebar(opts) {
   }
 
   function label(row) {
-    if (row.student_name) return row.student_name;
-    if (row.prenom || row.nom) return [row.prenom, row.nom].filter(Boolean).join(' ');
-    return row.student_id || row.email || 'Élève';
+    if (row.student_name && row.student_name !== 'Présent') return row.student_name;
+    if (row.email) return row.email.split('@')[0];
+    if (row.prenom && row.prenom !== 'Présent') return row.prenom;
+    return 'Présent';
   }
 
   function sub(row) {
-    if (row.email && row.student_name !== row.email) return row.email;
-    if (row.auth === 'google') return 'Google';
-    return row.room || '';
+    const parts = [];
+    if (row.email && row.student_name !== row.email) parts.push(row.email);
+    else if (row.auth === 'google') parts.push('Google');
+    else if (row.auth === 'qr' || row.auth === 'form') parts.push('Scan QR');
+    if (row.room) parts.push(row.room);
+    return parts.join(' · ') || 'Connecté';
   }
 
   async function refresh() {

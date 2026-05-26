@@ -17,7 +17,7 @@ const {
 const nonceStore = require('./lib/nonce-store');
 const { getGeofenceConfig, insideGeofence } = require('./lib/geo');
 const { emargerFormPage } = require('./lib/emarger-page');
-const { escapeHtml, errorPage, presenceSuccessPage } = require('./lib/html');
+const { escapeHtml, errorPage, presentSuccessPage } = require('./lib/html');
 const { layoutAppPage, layoutPage } = require('./lib/ui-shell');
 const presenceLog = require('./lib/presence-log');
 
@@ -322,10 +322,6 @@ app.post('/emarger', (req, res) => {
 
   if (!verifySessionQuery(t, sig)) return rejectUsedOrInvalidQr(res);
   if (!n || !nonceStore.consume(n)) return rejectUsedOrInvalidQr(res);
-  if (!nomTrim || !prenomTrim) {
-    return res.status(400).send(errorPage('Erreur', 'Nom et prénom requis.'));
-  }
-
   const geoCheck = insideGeofence(
     parseFloat(latitude),
     parseFloat(longitude)
@@ -336,12 +332,18 @@ app.post('/emarger', (req, res) => {
       .send(errorPage('Hors zone', geoCheck.reason || 'Géolocalisation refusée.'));
   }
 
-  presenceLog.record({ prenom: prenomTrim, nom: nomTrim, auth: 'form' });
+  const label = prenomTrim || 'Présent';
+  presenceLog.record({
+    prenom: label,
+    nom: nomTrim,
+    auth: 'qr',
+    uniqueKey: String(n),
+  });
   console.log(
-    `[PRÉSENCE] ${prenomTrim} ${nomTrim} — ${new Date().toISOString()}` +
+    `[PRÉSENCE] ${label} — ${new Date().toISOString()}` +
       (geoCheck.distance != null ? ` (${Math.round(geoCheck.distance)} m)` : '')
   );
-  res.send(presenceSuccessPage(prenomTrim, nomTrim));
+  res.send(presentSuccessPage());
 });
 
 // ——— QR par élève (page avec rafraîchissement 30 s) ———
@@ -420,9 +422,14 @@ app.get('/presence', (req, res) => {
   if (!verifyStudentQuery(nom, prenom, t, n, sig)) return rejectUsedOrInvalidQr(res);
   if (!n || !nonceStore.consume(n)) return rejectUsedOrInvalidQr(res);
 
-  presenceLog.record({ prenom, nom, auth: 'qr-eleve' });
+  presenceLog.record({
+    prenom: prenom || 'Présent',
+    nom,
+    auth: 'qr-eleve',
+    uniqueKey: String(n),
+  });
   console.log(`[PRÉSENCE] ${prenom} ${nom} — ${new Date().toISOString()}`);
-  res.send(presenceSuccessPage(prenom, nom));
+  res.send(presentSuccessPage());
 });
 
 // ——— Démarrage ———
