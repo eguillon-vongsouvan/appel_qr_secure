@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 import qrcode
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -51,16 +52,19 @@ def get_settings() -> Settings:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    public_url = settings.resolved_public_base_url()
+    app.state.public_base_url = public_url
+    logger.info("Mode en ligne — URL publique : %s", public_url)
     logger.info(
-        "Démarrage — géofonce %.0fm, TTL jeton %ss",
+        "Géofence %.0fm — TTL jeton %ss",
         settings.geofence_radius_meters,
         settings.token_ttl_seconds,
     )
-    if not settings.allowed_ip_set():
-        logger.warning(
-            "ALLOWED_PUBLIC_IPS vide : contrôle IP désactivé (à configurer pour la prod école)."
-        )
     yield
+
+
+def _public_url(request: Request) -> str:
+    return request.app.state.public_base_url
 
 
 app = FastAPI(title="Appel QR sécurisé", lifespan=lifespan)
@@ -143,33 +147,41 @@ def get_current_token(session_id: str, s: Annotated[Settings, Depends(get_settin
     }
 
 
-def _qr_payload_url(session_id: str, s: Settings) -> str:
+def _qr_payload_url(session_id: str, s: Settings, public_url: str) -> str:
     """URL dans le QR : page /scan puis redirection vers Google."""
     token = mint_token(s.app_secret, session_id, s.token_ttl_seconds)
-    return qr_scan_url(s.public_base_url, token)
+    return qr_scan_url(public_url, token)
 
 
 @app.get("/api/sessions/{session_id}/qr.png")
-def get_qr_png(session_id: str, s: Annotated[Settings, Depends(get_settings)]):
+def get_qr_png(
+    session_id: str,
+    request: Request,
+    s: Annotated[Settings, Depends(get_settings)],
+):
     if session_id not in SESSIONS:
         raise HTTPException(status_code=404, detail="Session inconnue")
-    buf = _render_qr_png(_qr_payload_url(session_id, s))
+    buf = _render_qr_png(_qr_payload_url(session_id, s, _public_url(request)))
     return StreamingResponse(buf, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/sessions/{session_id}/qr-url")
-def get_qr_url(session_id: str, s: Annotated[Settings, Depends(get_settings)]):
+def get_qr_url(
+    session_id: str,
+    request: Request,
+    s: Annotated[Settings, Depends(get_settings)],
+):
     """URL encodée dans le QR (debug / copier-coller)."""
     if session_id not in SESSIONS:
         raise HTTPException(status_code=404, detail="Session inconnue")
-    return {"url": _qr_payload_url(session_id, s)}
+    return {"url": _qr_payload_url(session_id, s, _public_url(request))}
 
 
 @app.get("/scan")
-async def scan_entry(t: str, request: Request, s: Annotated[Settings, Depends(get_settings)]):
+async def scan_entry(t: str, s: Annotated[Settings, Depends(get_settings)]):
     """
-    Point d'entrée après lecture du QR sur le téléphone.
-    Valide le jeton puis redirige vers la page de connexion Google.
+    Point d'entrée après lecture du QR : vérifie le jeton puis demande la position GPS
+    (périmètre 200 m) avant la connexion Google.
     """
     session_id = verify_token(s.app_secret, t, s.token_ttl_seconds)
     if not session_id or session_id not in SESSIONS:
@@ -179,12 +191,38 @@ async def scan_entry(t: str, request: Request, s: Annotated[Settings, Depends(ge
             status_code=302,
         )
 
-    ip = client_public_ip(request)
-    allowed = s.allowed_ip_set()
-    if allowed and ip not in allowed:
+    return RedirectResponse(
+        url=f"/static/scan_geo.html?t={quote(t, safe='')}",
+        status_code=302,
+    )
+
+
+@app.get("/scan/oauth")
+async def scan_oauth(
+    request: Request,
+    t: str,
+    latitude: float,
+    longitude: float,
+    s: Annotated[Settings, Depends(get_settings)],
+):
+    """Après GPS : vérifie le périmètre puis redirige vers Google OAuth."""
+    session_id = verify_token(s.app_secret, t, s.token_ttl_seconds)
+    if not session_id or session_id not in SESSIONS:
+        return RedirectResponse(
+            url="/static/scan_result.html?ok=0&msg=Code+expiré+ou+invalide.",
+            status_code=302,
+        )
+
+    if not inside_geofence(
+        latitude,
+        longitude,
+        s.school_latitude,
+        s.school_longitude,
+        s.geofence_radius_meters,
+    ):
         return RedirectResponse(
             url="/static/scan_result.html?ok=0&msg="
-            + "Connectez-vous+au+Wi‑Fi+de+l'établissement.",
+            + f"Vous+devez+être+à+moins+de+{int(s.geofence_radius_meters)}+m+du+cours.",
             status_code=302,
         )
 
@@ -199,9 +237,10 @@ async def scan_entry(t: str, request: Request, s: Annotated[Settings, Depends(ge
 
     pending_id = create_pending_scan(session_id)
     state = sign_oauth_state(s.app_secret, pending_id)
+    pub = _public_url(request)
     login_url = build_google_login_url(
         client_id,
-        redirect_uri(s.public_base_url),
+        redirect_uri(pub),
         state,
     )
     return RedirectResponse(url=login_url, status_code=302)
@@ -248,21 +287,13 @@ async def google_callback(
             status_code=302,
         )
 
-    ip = client_public_ip(request)
-    allowed = s.allowed_ip_set()
-    if allowed and ip not in allowed:
-        return RedirectResponse(
-            url="/static/scan_result.html?ok=0&msg=Wi‑Fi+établissement+requis",
-            status_code=302,
-        )
-
     try:
         client_id, client_secret = load_oauth_client(s.google_oauth_credentials_path)
         profile = await exchange_code_and_get_profile(
             code,
             client_id,
             client_secret,
-            redirect_uri(s.public_base_url),
+            redirect_uri(_public_url(request)),
         )
     except ValueError as e:
         logger.exception("Callback Google")
@@ -280,7 +311,6 @@ async def google_callback(
         "student_id": email,
         "student_name": name,
         "email": email,
-        "ip": ip,
         "auth": "google",
         "at": datetime.now(timezone.utc).isoformat(),
     }
@@ -311,14 +341,6 @@ def scan_attendance(
     if not sid_check:
         raise HTTPException(status_code=400, detail="Jeton invalide ou expiré")
 
-    ip = client_public_ip(request)
-    allowed = s.allowed_ip_set()
-    if allowed and ip not in allowed:
-        raise HTTPException(
-            status_code=403,
-            detail="Connexion refusée : IP non autorisée (utilisez le Wi-Fi de l'établissement).",
-        )
-
     if not inside_geofence(
         body.latitude,
         body.longitude,
@@ -328,7 +350,7 @@ def scan_attendance(
     ):
         raise HTTPException(
             status_code=403,
-            detail="Hors périmètre autorisé (géolocalisation).",
+            detail=f"Vous devez être à moins de {int(s.geofence_radius_meters)} m du cours.",
         )
 
     room = SESSIONS.get(sid_check, {}).get("room", "?")
@@ -337,7 +359,6 @@ def scan_attendance(
         "room": room,
         "student_id": body.student_id,
         "student_name": body.student_id,
-        "ip": ip,
         "auth": "api",
         "at": datetime.now(timezone.utc).isoformat(),
     }
@@ -421,11 +442,12 @@ def root():
 
 
 @app.get("/api/config")
-def public_config(s: Annotated[Settings, Depends(get_settings)]):
+def public_config(request: Request, s: Annotated[Settings, Depends(get_settings)]):
     """Infos utiles pour la page prof (URL à mettre dans PUBLIC_BASE_URL)."""
     return {
-        "public_base_url": s.public_base_url,
+        "public_base_url": request.app.state.public_base_url,
         "scan_flow": "QR → /scan → Google OAuth → présence",
+        "mode": "online_only",
     }
 
 

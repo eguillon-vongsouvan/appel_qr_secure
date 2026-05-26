@@ -1,7 +1,7 @@
 {
   "name": "appel-qr-secure",
   "version": "1.0.0",
-  "description": "Système d'émargement par QR Code accessible sur le réseau local",
+  "description": "Émargement par QR — mode en ligne uniquement (PUBLIC_URL obligatoire)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

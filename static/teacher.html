@@ -34,10 +34,10 @@
         </ol>
       </nav>
 
-      <div id="alert-file" class="alert hidden">
-        <strong>Page ouverte en fichier local</strong>
-        Les requêtes vers l’API ne fonctionnent pas depuis <code>file://</code>. Indiquez l’URL du serveur ci-dessous (ex. <code>http://127.0.0.1:8765</code>).
-      </div>
+    <div id="alert-file" class="alert hidden">
+      <strong>Page ouverte en fichier local</strong>
+      Ouvrez cette page depuis l’URL publique du serveur (ex. <code>https://votre-app.onrender.com/static/teacher.html</code>), pas en <code>file://</code>.
+    </div>
 
       <section id="screen-setup" class="panel">
         <div class="steps" aria-hidden="true">
@@ -45,16 +45,16 @@
           <span class="step-pill">2 · Projeter le QR</span>
         </div>
         <h2>Démarrer un appel</h2>
-        <p class="hint">Saisissez la salle ou le cours, puis affichez le QR au vidéoprojecteur. Les élèves scannent avec Google (Wi‑Fi établissement requis en production).</p>
-        <label for="api-base">URL du serveur API (si besoin)</label>
-        <input type="url" id="api-base" placeholder="Laisser vide si vous êtes déjà sur http://127.0.0.1:8765/…" autocomplete="off" />
+        <p class="hint">Saisissez la salle ou le cours, puis affichez le QR. Les élèves scannent depuis n'importe quel réseau s'ils sont à moins de <strong>200 m</strong> du cours.</p>
+      <label for="api-base">URL du serveur (si page ouverte ailleurs)</label>
+      <input type="url" id="api-base" placeholder="Laisser vide si vous êtes sur le même site (https://…)" autocomplete="off" />
         <label for="room">Salle ou cours</label>
         <input type="text" id="room" placeholder="Ex. Salle B204 — Mathématiques" maxlength="120" autofocus />
         <div class="row">
           <button type="button" class="primary" id="btn-start">Afficher le code QR →</button>
         </div>
         <footer class="note">
-          Dans <code>.env</code> : <code>PUBLIC_BASE_URL=http://VOTRE_IP:8765</code>, redémarrez le serveur, pare-feu ouvert. Même Wi‑Fi pour les élèves.
+          Dans <code>.env</code> : coordonnées du cours (<code>SCHOOL_LATITUDE</code>, <code>SCHOOL_LONGITUDE</code>) et <code>PUBLIC_BASE_URL</code> pour le scan mobile.
         </footer>
       </section>
 
@@ -114,7 +114,7 @@
     function api(path) {
       const base = getApiBase();
       if (!base && (location.protocol === 'file:' || location.protocol === '')) {
-        throw new Error('Définissez l’URL du serveur (ex. http://127.0.0.1:8765)');
+        throw new Error('Définissez l’URL publique du serveur (https://…)');
       }
       return (base || '') + path;
     }

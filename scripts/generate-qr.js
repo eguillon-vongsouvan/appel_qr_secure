@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
+require('../lib/load-env').loadEnvFile();
 const { getBaseUrl } = require('../lib/base-url');
 
 const [nom, prenom, portArg] = process.argv.slice(2);

@@ -1,11 +1,12 @@
 /**
- * Émargement par QR — local (Wi-Fi) ou Internet (PUBLIC_URL).
+ * Émargement par QR — mode en ligne uniquement, périmètre GPS 200 m.
  */
+require('./lib/load-env').loadEnvFile();
+
 const path = require('path');
 const express = require('express');
 const QRCode = require('qrcode');
-const { getAllLocalIps } = require('./lib/get-local-ip');
-const { getBaseUrl, isPublicMode } = require('./lib/base-url');
+const { getBaseUrl, requireOnlineMode } = require('./lib/base-url');
 const {
   buildStudentToken,
   buildSessionToken,
@@ -33,11 +34,10 @@ app.use((req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const allIps = getAllLocalIps();
-const publicMode = isPublicMode();
+const PUBLIC_URL = requireOnlineMode();
 
 function baseUrl() {
-  return getBaseUrl(PORT);
+  return getBaseUrl();
 }
 
 /** URL de présence signée (créneau 30 s + jeton à usage unique). */
@@ -81,44 +81,24 @@ function rejectUsedOrInvalidQr(res) {
     );
 }
 
-function phoneTestLinksHtml() {
-  if (publicMode) {
-    const u = baseUrl();
-    return `<p class="ok-public">Mode Internet actif</p>
-      <p>Test : <a href="${escapeHtml(u)}/test">${escapeHtml(u)}/test</a></p>`;
-  }
-  if (allIps.length === 0) {
-    return '<p class="warn">Aucune IP locale. Utilisez PUBLIC_URL pour Internet.</p>';
-  }
-  return `<ul>${allIps
-    .map(
-      (c) =>
-        `<li><strong>${escapeHtml(c.name)}</strong> — <a href="http://${escapeHtml(c.address)}:${PORT}/test">http://${escapeHtml(c.address)}:${PORT}/test</a></li>`
-    )
-    .join('')}</ul>`;
-}
-
 // ——— Accueil ———
 app.get('/', (req, res) => {
   const phoneUrl = baseUrl();
-  const wifiSteps = publicMode
-    ? ''
-    : `<ol>
-      <li>Même Wi-Fi PC / téléphone</li>
-      <li>Pare-feu : <code>scripts\\parefeu.ps1</code> (admin)</li>
-      <li>Pour Internet : définir <code>PUBLIC_URL</code> (voir ci-dessous)</li>
-    </ol>`;
+  const geo = getGeofenceConfig();
+  const geoLine = geo.enabled
+    ? `<li><strong>Géolocalisation</strong> : scan uniquement à moins de <strong>${geo.radius} m</strong> du cours (Wi‑Fi, 4G, etc. acceptés)</li>`
+    : `<li><strong>Géolocalisation</strong> : définir <code>SCHOOL_LATITUDE</code> / <code>SCHOOL_LONGITUDE</code> dans <code>.env</code></li>`;
   res.send(
     layoutAppPage({
       title: 'Émargement QR',
       headerTitle: 'Émargement QR',
-      headerSubtitle: 'Présence sécurisée en salle de cours',
+      headerSubtitle: 'Mode en ligne — accessible depuis Internet',
       withSidebar: true,
       sidebarInit: 'initPresenceSidebar({ apiPath: "/api/presence" });',
       sidebarEmptyHint: 'Personne pour l’instant — la liste se remplit au fur et à mesure des scans.',
       sommaireItems: [
-        { href: '#accueil-wifi', label: 'Connexion' },
-        { href: '#accueil-internet', label: 'Internet' },
+        { href: '#accueil-acces', label: 'URL publique' },
+        { href: '#accueil-config', label: 'Configuration' },
         { href: '#accueil-securite', label: 'Sécurité' },
         { href: '#accueil-classe', label: 'QR séance' },
         { href: '#accueil-eleve', label: 'QR par élève' },
@@ -126,18 +106,18 @@ app.get('/', (req, res) => {
         { href: '/aide', label: 'Aide' },
       ],
       bodyHtml: `
-  <div class="box" id="accueil-wifi">
-    <h2>${publicMode ? 'Accès Internet (PUBLIC_URL)' : 'Accès téléphone (même Wi-Fi)'}</h2>
-    ${phoneTestLinksHtml()}
-    <p class="ip">URL dans les QR : ${escapeHtml(phoneUrl)}</p>
-    ${wifiSteps}
+  <div class="box" id="accueil-acces">
+    <h2>URL publique (QR codes)</h2>
+    <p class="ok-public">Mode en ligne actif</p>
+    <p class="ip">${escapeHtml(phoneUrl)}</p>
+    <p class="hint">Test : <a href="${escapeHtml(phoneUrl)}/test">${escapeHtml(phoneUrl)}/test</a></p>
   </div>
 
-  <div class="box" id="accueil-internet">
-    <h2>Passer sur Internet</h2>
-    <p class="hint" style="margin:0;">Définissez l'URL publique avant <code>npm start</code> :</p>
-    <p class="ip" style="margin-top:0.75rem;">set PUBLIC_URL=https://votre-url.ngrok-free.app</p>
-    <p class="hint">Ou déployez sur <strong>Render</strong> — le fichier <code>render.yaml</code> est prêt.</p>
+  <div class="box" id="accueil-config">
+    <h2>Configuration (.env)</h2>
+    <p class="hint" style="margin:0;">Le serveur ne démarre pas sans URL Internet :</p>
+    <p class="ip" style="margin-top:0.75rem;">PUBLIC_URL=https://votre-app.onrender.com</p>
+    <p class="hint">En local : tunnel <code>ngrok http 3000</code> puis copiez l'URL https (voir <code>scripts\\tunnel-ngrok.ps1</code>).</p>
   </div>
 
   <div class="box" id="accueil-securite">
@@ -145,7 +125,7 @@ app.get('/', (req, res) => {
     <ul>
       <li>QR <strong>usage unique</strong> (une photo ne peut pas être réutilisée)</li>
       <li>QR <strong>renouvelé toutes les 30 s</strong></li>
-      <li><strong>Géolocalisation</strong> : émarger uniquement sur place (.env)</li>
+      ${geoLine}
     </ul>
   </div>
 
@@ -221,15 +201,13 @@ app.get('/aide', (req, res) => {
       headerSubtitle: 'Connexion du téléphone au serveur',
       bodyHtml: `
   <div class="panel">
-    <p class="hint">Le QR contient une URL avec l'<strong>IP du PC</strong>, par exemple :</p>
+    <p class="hint">Le scan fonctionne sur <strong>tout réseau</strong> si l'élève est à moins de <strong>200 m</strong> du cours (GPS).</p>
     <p class="ip">${escapeHtml(u)}/emarger?...</p>
-    <p class="hint">Au scan, le navigateur du téléphone contacte le PC sur le Wi-Fi — comme un site local.</p>
     <h2 style="font-size:1rem;margin-top:1.5rem;">Checklist</h2>
     <ul class="hint">
       <li>Serveur lancé : <code>npm start</code></li>
-      <li>Même Wi-Fi PC / téléphone</li>
-      <li>Pas de VPN isolant le téléphone</li>
-      <li>Pare-feu : autoriser Node.js sur réseau privé</li>
+      <li>Coordonnées du cours dans <code>.env</code> (<code>SCHOOL_LATITUDE</code>, <code>SCHOOL_LONGITUDE</code>)</li>
+      <li>Localisation activée sur le téléphone</li>
       <li>Test : <code>${escapeHtml(u)}/test</code></li>
     </ul>
     <p class="links"><a href="/">← Retour</a></p>
@@ -439,20 +417,11 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  Émargement QR — serveur démarré');
   console.log('  ─────────────────────────────────');
-  if (publicMode) {
-    console.log(`  Mode             : INTERNET (PUBLIC_URL)`);
-    console.log(`  URL publique     : ${url}`);
-    console.log(`  QR / affiche     : ${url}/affiche`);
-    console.log(`  Test             : ${url}/test`);
-  } else {
-    console.log(`  Mode             : LOCAL (Wi-Fi)`);
-    console.log(`  PC               : http://localhost:${PORT}/affiche`);
-    for (const c of allIps) {
-      console.log(`  Téléphone (${c.name}) : http://${c.address}:${PORT}/test`);
-    }
-    console.log('');
-    console.log('  Internet ?  set PUBLIC_URL=https://votre-url  puis npm start');
-  }
+  console.log(`  Mode             : EN LIGNE (obligatoire)`);
+  console.log(`  URL publique     : ${url}`);
+  console.log(`  QR / affiche     : ${url}/affiche`);
+  console.log(`  Interface prof   : ${url}/static/teacher.html`);
+  console.log(`  Test             : ${url}/test`);
   console.log('');
   console.log('  Port bloqué ?  npm run stop');
   const geo = getGeofenceConfig();

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vérification de position</title>
+  <link rel="stylesheet" href="/static/css/theme.css" />
+</head>
+<body class="page-present-ok">
+  <div class="present-screen">
+    <div class="present-spinner" aria-hidden="true"></div>
+    <p class="present-loading" id="status">Vérification de votre position (200 m max)…</p>
+    <p class="present-sub" id="err" style="display:none;color:var(--error);"></p>
+  </div>
+  <script>
+    const t = new URLSearchParams(location.search).get('t');
+    if (!t) {
+      location.replace('/static/scan_result.html?ok=0&msg=QR+invalide');
+    } else if (!navigator.geolocation) {
+      document.getElementById('err').style.display = 'block';
+      document.getElementById('err').textContent = 'Géolocalisation requise sur cet appareil.';
+      document.querySelector('.present-spinner').style.display = 'none';
+    } else {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const q = new URLSearchParams({ t, latitude: String(lat), longitude: String(lng) });
+          location.replace('/scan/oauth?' + q.toString());
+        },
+        () => {
+          document.querySelector('.present-spinner').style.display = 'none';
+          document.getElementById('status').style.display = 'none';
+          const err = document.getElementById('err');
+          err.style.display = 'block';
+          err.textContent = 'Autorisez la localisation pour confirmer que vous êtes sur place (moins de 200 m).';
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }
+  </script>
+</body>
+</html>

@@ -9,6 +9,7 @@ services:
         generateValue: true
       - key: NODE_VERSION
         value: "20"
+      # RENDER_EXTERNAL_URL est injecté automatiquement ; utilisé comme PUBLIC_URL
       - key: GEOFENCE_ENABLED
         value: "1"
       - key: SCHOOL_LATITUDE
@@ -16,4 +17,4 @@ services:
       - key: SCHOOL_LONGITUDE
         sync: false
       - key: GEOFENCE_RADIUS_METERS
-        value: "150"
+        value: "200"
