@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Appel en cours — QR sécurisé</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/theme.css" />
+</head>
+<body class="has-sidebar page-teacher">
+  <div class="tex-layer tex-hex" aria-hidden="true"></div>
+  <div class="tex-layer tex-grid" aria-hidden="true"></div>
+  <div class="tex-layer tex-noise" aria-hidden="true"></div>
+  <div class="tex-layer tex-vignette" aria-hidden="true"></div>
+
+  <div class="app-shell">
+    <div class="app-main">
+      <header class="site-header">
+        <img class="site-logo" src="/static/img/logo-guardia.png" alt="Logo" width="56" height="56" />
+        <div class="site-header-text">
+          <h1>Appel sécurisé</h1>
+          <p>Code QR dynamique — usage en salle de classe</p>
+        </div>
+      </header>
+
+      <nav class="sommaire" aria-label="Sommaire">
+        <p class="sommaire-title">Sommaire</p>
+        <ol class="sommaire-list">
+          <li><a href="#screen-setup">Configurer la session</a></li>
+          <li><a href="#prof-qr">Code QR en direct</a></li>
+          <li><a href="#sidebar" onclick="document.querySelector('.app-sidebar').scrollIntoView({behavior:'smooth'});return false;">Voir les connectés →</a></li>
+        </ol>
+      </nav>
+
+      <div id="alert-file" class="alert hidden">
+        <strong>Page ouverte en fichier local</strong>
+        Les requêtes vers l’API ne fonctionnent pas depuis <code>file://</code>. Indiquez l’URL du serveur ci-dessous (ex. <code>http://127.0.0.1:8765</code>).
+      </div>
+
+      <section id="screen-setup" class="panel">
+        <div class="steps" aria-hidden="true">
+          <span class="step-pill active">1 · Configurer</span>
+          <span class="step-pill">2 · Projeter le QR</span>
+        </div>
+        <h2>Démarrer un appel</h2>
+        <p class="hint">Saisissez la salle ou le cours, puis affichez le QR au vidéoprojecteur. Les élèves scannent avec Google (Wi‑Fi établissement requis en production).</p>
+        <label for="api-base">URL du serveur API (si besoin)</label>
+        <input type="url" id="api-base" placeholder="Laisser vide si vous êtes déjà sur http://127.0.0.1:8765/…" autocomplete="off" />
+        <label for="room">Salle ou cours</label>
+        <input type="text" id="room" placeholder="Ex. Salle B204 — Mathématiques" maxlength="120" autofocus />
+        <div class="row">
+          <button type="button" class="primary" id="btn-start">Afficher le code QR →</button>
+        </div>
+        <footer class="note">
+          Dans <code>.env</code> : <code>PUBLIC_BASE_URL=http://VOTRE_IP:8765</code>, redémarrez le serveur, pare-feu ouvert. Même Wi‑Fi pour les élèves.
+        </footer>
+      </section>
+
+      <section id="screen-live" class="panel hidden">
+        <div class="steps" aria-hidden="true">
+          <span class="step-pill done">1 · Configurer</span>
+          <span class="step-pill active">2 · Projeter le QR</span>
+        </div>
+        <div id="prof-qr">
+          <div class="live-head">
+            <span class="badge-room" id="room-display">—</span>
+            <span class="timer" id="countdown">—</span>
+          </div>
+          <div class="qr-frame">
+            <p>Scan → <strong>connexion Google</strong> → présence enregistrée. QR renouvelé automatiquement.</p>
+            <img id="qr" alt="Code QR d’appel" width="400" height="400" />
+            <p id="status">Chargement du QR…</p>
+          </div>
+          <div class="row" style="margin-top:1rem;">
+            <button type="button" class="ghost" id="btn-new">← Nouvelle session</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="app-sidebar" id="sidebar" aria-label="Personnes connectées">
+      <div class="sidebar-head">
+        <h2>Connectés</h2>
+        <span class="presence-count" id="presence-count">0</span>
+      </div>
+      <p class="sidebar-hint">Mise à jour automatique après chaque connexion Google.</p>
+      <p class="presence-empty" id="presence-empty" hidden>En attente du premier élève…</p>
+      <ul class="presence-list" id="presence-list"></ul>
+    </aside>
+  </div>
+
+  <script src="/static/js/presence-sidebar.js"></script>
+  <script>
+    const LS_API = 'appel_qr_api_base';
+    const params = new URLSearchParams(location.search);
+    let sessionId = params.get('session');
+    let roomName = '';
+    let refreshMs = 5000;
+    let countdownTimer = null;
+    let refreshTimeoutId = null;
+    let presencePoll = null;
+
+    const el = (id) => document.getElementById(id);
+
+    function getApiBase() {
+      const raw = el('api-base').value.trim().replace(/\/$/, '');
+      if (raw) return raw;
+      if (location.protocol === 'http:' || location.protocol === 'https:') return '';
+      return '';
+    }
+
+    function api(path) {
+      const base = getApiBase();
+      if (!base && (location.protocol === 'file:' || location.protocol === '')) {
+        throw new Error('Définissez l’URL du serveur (ex. http://127.0.0.1:8765)');
+      }
+      return (base || '') + path;
+    }
+
+    function attendanceUrl() {
+      if (!sessionId) return null;
+      return api('/api/sessions/' + encodeURIComponent(sessionId) + '/attendance');
+    }
+
+    function startPresencePoll() {
+      if (presencePoll) clearInterval(presencePoll);
+      presencePoll = initPresenceSidebar({
+        getUrl: attendanceUrl,
+        intervalMs: 2000,
+      });
+    }
+
+    function clearSchedulers() {
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+      if (refreshTimeoutId) { clearTimeout(refreshTimeoutId); refreshTimeoutId = null; }
+      if (presencePoll) { clearInterval(presencePoll); presencePoll = null; }
+    }
+
+    function showSetup() {
+      clearSchedulers();
+      el('screen-live').classList.add('hidden');
+      el('screen-setup').classList.remove('hidden');
+      sessionId = null;
+      initPresenceSidebar({ getUrl: () => null });
+    }
+
+    function showLive() {
+      el('screen-setup').classList.add('hidden');
+      el('screen-live').classList.remove('hidden');
+      startPresencePoll();
+    }
+
+    function setStatus(text, isError) {
+      const s = el('status');
+      s.textContent = text;
+      s.classList.toggle('err', !!isError);
+    }
+
+    function updateCountdown(seconds) {
+      el('countdown').textContent = 'Prochain QR : ' + Math.max(0, seconds) + ' s';
+    }
+
+    async function refreshQr() {
+      const img = el('qr');
+      if (!sessionId) return;
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+      try {
+        const r = await fetch(api('/api/sessions/' + encodeURIComponent(sessionId) + '/token'));
+        if (!r.ok) throw new Error((await r.text()) || r.statusText);
+        const j = await r.json();
+        refreshMs = (j.refresh_in || 5) * 1000;
+        setStatus('Code à jour — valide environ ' + (j.expires_in || 30) + ' s', false);
+        const url = api('/api/sessions/' + encodeURIComponent(sessionId) + '/qr.png?t=' + Date.now());
+        img.classList.remove('loaded', 'error');
+        img.onload = function () { img.classList.add('loaded'); img.onload = null; };
+        img.onerror = function () {
+          img.classList.add('error');
+          setStatus('Impossible d’afficher le QR.', true);
+        };
+        img.src = url;
+        let left = Math.ceil(refreshMs / 1000);
+        updateCountdown(left);
+        countdownTimer = setInterval(function () {
+          left -= 1;
+          updateCountdown(left);
+          if (left <= 0) { clearInterval(countdownTimer); countdownTimer = null; }
+        }, 1000);
+        refreshTimeoutId = setTimeout(refreshQr, refreshMs);
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+        refreshTimeoutId = setTimeout(refreshQr, 3000);
+      }
+    }
+
+    async function startSession() {
+      roomName = el('room').value.trim() || 'Salle non précisée';
+      const btn = el('btn-start');
+      btn.disabled = true;
+      try {
+        localStorage.setItem(LS_API, el('api-base').value.trim());
+        const r = await fetch(api('/api/sessions'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ room_name: roomName }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        sessionId = data.session_id;
+        try { history.replaceState({}, '', '?session=' + encodeURIComponent(sessionId)); } catch (_) {}
+        el('room-display').textContent = roomName;
+        showLive();
+        refreshQr();
+      } catch (e) {
+        alert('Impossible de créer la session : ' + (e.message || e));
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    el('btn-start').addEventListener('click', startSession);
+    el('btn-new').addEventListener('click', function () {
+      try { history.replaceState({}, '', location.pathname); } catch (_) {}
+      showSetup();
+    });
+
+    if (location.protocol === 'file:') el('alert-file').classList.remove('hidden');
+    const saved = localStorage.getItem(LS_API);
+    if (saved) el('api-base').value = saved;
+
+    initPresenceSidebar({ getUrl: attendanceUrl, intervalMs: 2500 });
+
+    if (sessionId) {
+      showLive();
+      el('room-display').textContent = 'Chargement…';
+      fetch(api('/api/sessions/' + encodeURIComponent(sessionId) + '/info'))
+        .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function (data) { el('room-display').textContent = data.room || 'Appel en cours'; })
+        .catch(function () {
+          el('room-display').textContent = 'Session introuvable';
+          setStatus('Session expirée. Nouvelle session.', true);
+        });
+      refreshQr();
+    }
+  </script>
+</body>
+</html>

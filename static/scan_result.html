@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Appel — résultat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700&family=Syne:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/theme.css" />
+</head>
+<body class="result-page">
+  <div class="tex-layer tex-hex" aria-hidden="true"></div>
+  <div class="tex-layer tex-grid" aria-hidden="true"></div>
+  <div class="tex-layer tex-noise" aria-hidden="true"></div>
+  <div class="tex-layer tex-vignette" aria-hidden="true"></div>
+
+  <div class="site-wrap">
+    <header class="site-header">
+      <img class="site-logo" src="/static/img/logo-guardia.png" alt="Logo" width="56" height="56" />
+      <div class="site-header-text">
+        <h1 id="title">Présence enregistrée</h1>
+        <p id="msg">Merci, votre connexion Google a été validée.</p>
+      </div>
+    </header>
+    <div class="result-main">
+      <div class="result-card panel">
+        <div id="icon" class="result-icon ok" aria-hidden="true">✓</div>
+        <p class="room" id="room"></p>
+      </div>
+    </div>
+  </div>
+  <script>
+    const p = new URLSearchParams(location.search);
+    const ok = p.get('ok') === '1';
+    if (!ok) {
+      document.getElementById('icon').className = 'result-icon err';
+      document.getElementById('icon').textContent = '✕';
+      document.getElementById('title').textContent = 'Échec';
+      document.getElementById('msg').textContent = p.get('msg') || 'Connexion ou appel impossible.';
+    }
+    const room = p.get('room');
+    if (room) document.getElementById('room').textContent = decodeURIComponent(room.replace(/\+/g, ' '));
+  </script>
+</body>
+</html>
